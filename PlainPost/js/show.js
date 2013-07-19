@@ -1,9 +1,8 @@
 /**
  * @fileOverview
  * This JavaScript acts as the driver for the PlainPost injectable application.
- * It defines the behavior specifc to this application. At a minimum the app
- * must start the tooltip. Without the supporting shared files found in the 
- * shared directory, this script is useless.
+ * It defines the behavior specifc to this application. For more information
+ * about the PlainPost application, view the README.
  **/
 
 /**
@@ -57,16 +56,10 @@ function singleClick(evt) {
  */
 function contentCallback(response) {
   
-  if( response.status === 200 ) {
+  if( response.jqXHR.status === 200 ) {
     
-    var json = null;
+    var json = response.json;
     var html = null;
-    
-    try {
-      json = JSON.parse(response.responseText);
-    } catch(err) {
-      html = response.responseText;
-    }
     
     if( json !== null && json.rendered_markdown) {
       html = json.rendered_markdown;
@@ -80,46 +73,61 @@ function contentCallback(response) {
       }
     }
     
+    // non-JSON fallback
+    if( html === null ) {
+      html = response.jqXHR.responseText;
+    }
+    
     $("#post_content").html(html_sanitize(html));
     
-    // Tells the parent document how tall the iframe is so that
-    // the iframe height can be changed to its content's height
-    privlyHostPage.resizeToWrapper();
-    
-  } else if(response.status === 403) {
+  } else if(response.jqXHR.status === 403) {
     $("#post_content").html("<p>Your current user account does not have access to this.</p>");
   } else {
     $("#post_content").html("<p>You do not have access to this.</p>");
   }
+  
+  // Tells the parent document how tall the iframe is so that
+  // the iframe height can be changed to its content's height
+  privlyHostPage.resizeToWrapper();
 }
 
 jQuery(window).load(function(){
   
-  // Creates a tooptip which indicates the content is not a 
-  // natural element of the page
-  privlyTooltip.tooltip();
-  
   // Set the application and data URLs
   var href = window.location.href;
-  webApplicationURL = href.substr(href.indexOf("privlyOriginalURL=") + 18);
+  webApplicationURL = privlyParameters.getApplicationUrl(href);
   parameters = privlyParameters.getParameterHash(webApplicationURL);
+  
   if (parameters["privlyDataURL"] !== undefined) {
-    jsonURL = parameters["privlyDataURL"];
+    jsonURL = decodeURIComponent(parameters["privlyDataURL"]);
   } else {
-    jsonURL = webApplicationURL.replace("format=iframe", "format=json");
+    jsonURL = webApplicationURL.replace("format=iframe", "format=json");//deprecated
+  }
+  
+  // The domain the data is pulled from
+  var dataProtocol = jsonURL.split("/")[0];
+  var dataDomain = jsonURL.split("/")[2];
+  
+  if(privlyHostPage.isInjected()) {
+    // Creates a tooptip which indicates the content is not a 
+    // natural element of the page
+    privlyTooltip.tooltip();
     
-    //deprecated
-    webApplicationURL = webApplicationURL.replace("format=iframe", "format=html");
+    // Display the domain of the content in the glyph
+    privlyTooltip.updateMessage(dataDomain + " PlainPost: Read Only");
+    
+    // Register the click listener.
+    jQuery("body").on("click", singleClick);
+    
+    loadInjectedCSS();
+  } else {
+    $(".home_domain").attr("href", dataProtocol + dataDomain);
+    $(".home_domain").text(dataDomain);
+    loadTopCSS();
   }
   
   // Make the cross origin request as if it were on the same origin.
-  privlyNetworkService.sameOriginRequest(jsonURL, contentCallback);
-  
-  // Register the click listener.
-  jQuery("body").on("click", singleClick);
-  
-  // Display the domain of the content in the glyph
-  var domain = jsonURL.split("/")[2];
-  privlyTooltip.updateMessage(domain + " PlainPost: Read Only");
+  privlyNetworkService.initPrivlyService(false);
+  privlyNetworkService.sameOriginGetRequest(jsonURL, contentCallback);
   
 });
